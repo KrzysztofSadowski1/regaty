@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <title>Regaty – Tabela Wyników</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #002b5c;
+      color: white;
+    }
+    input, button {
+      margin: 5px;
+      padding: 5px;
+    }
+    table {
+      border-collapse: collapse;
+      margin-top: 20px;
+      width: 100%;
+      background-color: white;
+      color: black;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: center;
+    }
+    th {
+      background-color: #00b4f1;
+      color: #002b5c;
+    }
+    input[type=number] {
+      width: 60px;
+    }
+    #exportBtn {
+      margin-top: 20px;
+    }
+    .logo {
+      display: block;
+      margin: 0 auto 20px auto;
+      max-width: 150px;
+    }
+  </style>
+</head>
+<body>
+
+  <img src="logo.png" alt="Logo TKŻ" class="logo">
+  <h2 style="text-align: center;">Ewidencja wyników regat</h2>
+
+  <label for="liczbaStartow">Liczba startów:</label>
+  <input type="number" id="liczbaStartow" min="1" max="20" value="5">
+
+  <h3>Dodaj zawodnika</h3>
+  <input type="text" id="imie" placeholder="Imię" required>
+  <input type="text" id="zagiel" placeholder="Numer żagla (opcjonalnie)">
+  <button onclick="dodajZawodnika()">Dodaj</button>
+
+  <table id="tabela" style="display:none;"></table>
+
+  <h3>Podsumowanie wyników:</h3>
+  <div id="podsumowanie"></div>
+
+  <button id="exportBtn" onclick="eksportujDoPDF()" style="display:none;">Eksportuj do PDF</button>
+
+  <script>
+    let zawodnicy = [];
+    let liczbaStartow = 5;
+
+    function dodajZawodnika() {
+      const imie = document.getElementById('imie').value.trim();
+      const zagiel = document.getElementById('zagiel').value.trim();
+      liczbaStartow = parseInt(document.getElementById('liczbaStartow').value);
+
+      if (!imie || liczbaStartow < 1) return;
+
+      zawodnicy.push({ imie, zagiel, wyniki: Array(liczbaStartow).fill('') });
+      document.getElementById('imie').value = '';
+      document.getElementById('zagiel').value = '';
+      pokazTabele();
+    }
+
+    function pokazTabele() {
+      const tabela = document.getElementById('tabela');
+      tabela.style.display = 'table';
+
+      let html = '<tr><th>Imię</th><th>Numer żagla</th>';
+      for (let i = 0; i < liczbaStartow; i++) {
+        html += `<th>Start ${i + 1}</th>`;
+      }
+      html += '<th>Suma</th></tr>';
+
+      zawodnicy.forEach((zawodnik, i) => {
+        html += `<tr>
+          <td>${zawodnik.imie}</td>
+          <td>${zawodnik.zagiel || '-'}</td>`;
+
+        for (let j = 0; j < liczbaStartow; j++) {
+          html += `<td><input type="number" min="1" onchange="aktualizujWynik(${i}, ${j}, this)" value="${zawodnik.wyniki[j]}"></td>`;
+        }
+
+        const suma = obliczSumeZRzuceniemNajgorszego(zawodnik.wyniki);
+        html += `<td id="suma-${i}">${suma}</td></tr>`;
+      });
+
+      tabela.innerHTML = html;
+      document.getElementById('exportBtn').style.display = 'inline-block';
+      pokazPodsumowanie();
+    }
+
+    function aktualizujWynik(zawodnikIndex, startIndex, input) {
+      const wartosc = parseInt(input.value);
+      zawodnicy[zawodnikIndex].wyniki[startIndex] = isNaN(wartosc) ? '' : wartosc;
+      document.getElementById(`suma-${zawodnikIndex}`).textContent =
+        obliczSumeZRzuceniemNajgorszego(zawodnicy[zawodnikIndex].wyniki);
+      pokazPodsumowanie();
+    }
+
+    function obliczSumeZRzuceniemNajgorszego(wyniki) {
+      const liczby = wyniki.map(w => parseInt(w)).filter(w => !isNaN(w));
+      if (liczby.length === 0) return 0;
+      if (liczby.length > 3) {
+        const najgorszy = Math.max(...liczby);
+        let usunieto = false;
+        return liczby.reduce((sum, val) => {
+          if (!usunieto && val === najgorszy) {
+            usunieto = true;
+            return sum;
+          }
+          return sum + val;
+        }, 0);
+      } else {
+        return liczby.reduce((a, b) => a + b, 0);
+      }
+    }
+
+    function pokazPodsumowanie() {
+      const kontener = document.getElementById('podsumowanie');
+      if (zawodnicy.length === 0) {
+        kontener.innerHTML = '';
+        return;
+      }
+
+      const ranking = zawodnicy.map((z) => ({
+        imie: z.imie,
+        zagiel: z.zagiel,
+        suma: obliczSumeZRzuceniemNajgorszego(z.wyniki)
+      })).sort((a, b) => a.suma - b.suma);
+
+      kontener.innerHTML = ranking.map((z, i) =>
+        `${i + 1}. ${z.imie} ${z.zagiel ? '(' + z.zagiel + ')' : ''} – ${z.suma} pkt`
+      ).join('<br>');
+    }
+
+    function eksportujDoPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      doc.setFontSize(14);
+      doc.text('Wyniki regat', 10, 20);
+
+      let y = 30;
+      doc.setFontSize(11);
+
+      zawodnicy.forEach((z) => {
+        const liczby = z.wyniki.map(w => parseInt(w)).filter(w => !isNaN(w));
+        const najgorszy = (liczby.length > 3) ? Math.max(...liczby) : null;
+        let usunieto = false;
+        const wyswietlane = liczby.filter(val => {
+          if (!usunieto && najgorszy !== null && val === najgorszy) {
+            usunieto = true;
+            return false;
+          }
+          return true;
+        });
+
+        const suma = obliczSumeZRzuceniemNajgorszego(z.wyniki);
+        doc.text(`${z.imie} ${z.zagiel ? '(' + z.zagiel + ')' : ''} – [${wyswietlane.join(', ')}] → Suma: ${suma}`, 10, y);
+        y += 7;
+      });
+
+      y += 10;
+      doc.setFontSize(13);
+      doc.text('Podsumowanie (klasyfikacja):', 10, y);
+      y += 7;
+
+      const ranking = zawodnicy.map((z) => ({
+        imie: z.imie,
+        zagiel: z.zagiel,
+        suma: obliczSumeZRzuceniemNajgorszego(z.wyniki)
+      })).sort((a, b) => a.suma - b.suma);
+
+      doc.setFontSize(11);
+      ranking.forEach((z, i) => {
+        doc.text(`${i + 1}. ${z.imie} ${z.zagiel ? '(' + z.zagiel + ')' : ''} – ${z.suma} pkt`, 10, y);
+        y += 7;
+      });
+
+      doc.save('wyniki_regat.pdf');
+    }
+  </script>
+</body>
+</html>
